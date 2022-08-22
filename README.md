@@ -31,7 +31,8 @@ python gen_weak.py
  --margin=20 \
 ```
 ```
-python gen_weak.py --base_folder='./data/promise_WSS/val' \
+python gen_weak.py 
+--base_folder='./data/promise_WSS/val' \
  --save_subfolder='box20' \
  --strategy='box_strat' \
  --selected_class=1 \
@@ -39,6 +40,31 @@ python gen_weak.py --base_folder='./data/promise_WSS/val' \
  --seed=0 \
  --margin=20 \
 ```
-
+- [x] train the FedDM framework
+```
+python main.py 
+--dataset='./data/promise_WSS'\
+    --csv='metrics.csv'\
+    --workdir='results/prostate/'\
+    --losses="[('CrossEntropy', {'idc': [0, 1]}, None, None, None, 1)]"\
+    --folders="[('img', png_transform, False), ('gt', gt_transform, True)]+[('box20', gt_transform, True)]"\
+    --network='ResidualUNet'\
+    --n_class=2\
+    --cpu=False\
+    --use_sgd=False\
+    --group=False\
+    --n_epoch=200\
+    --l_rate=5e-4\
+    --grp_regex='(Case\d+_\d+)_\d+'\
+    --scheduler="DummyScheduler"\
+    --scheduler_params="{}"\
+    --batch_size=4\
+    --client_num=4\
+    --worker_steps=1 \
+    --peer_learning=True \
+    --ratio=0.6\
+    --stop_epoch=50 \
+    --seed=1
+```
 
 
