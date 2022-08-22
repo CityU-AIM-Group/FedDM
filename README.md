@@ -15,35 +15,35 @@ pip install -r requirements.txt
 - [x] preprocess the data 
 ```
 python python slice_promise.py 
---source_dir='./data/promise' \
---dest_dir='./data/promise_WSS' \
---n_augment=0
+    --source_dir='./data/promise' \
+    --dest_dir='./data/promise_WSS' \
+    --n_augment=0
 ```
 - [x] generate bounding-box annotations
 ```
 python gen_weak.py 
---base_folder='./data/promise_WSS/train' \
- --save_subfolder='box20' \
- --strategy='box_strat' \
- --selected_class=1 \
- --filling 1 \
- --seed=0 \
- --margin=20 \
+    --base_folder='./data/promise_WSS/train' \
+    --save_subfolder='box20' \
+    --strategy='box_strat' \
+    --selected_class=1 \
+    --filling 1 \
+    --seed=0 \
+    --margin=20 \
 ```
 ```
 python gen_weak.py 
---base_folder='./data/promise_WSS/val' \
- --save_subfolder='box20' \
- --strategy='box_strat' \
- --selected_class=1 \
- --filling 1 \
- --seed=0 \
- --margin=20 \
+    --base_folder='./data/promise_WSS/val' \
+    --save_subfolder='box20' \
+    --strategy='box_strat' \
+    --selected_class=1 \
+    --filling 1 \
+    --seed=0 \
+    --margin=20 \
 ```
 - [x] train the FedDM framework
 ```
 python main.py 
---dataset='./data/promise_WSS'\
+    --dataset='./data/promise_WSS'\
     --csv='metrics.csv'\
     --workdir='results/prostate/'\
     --losses="[('CrossEntropy', {'idc': [0, 1]}, None, None, None, 1)]"\
