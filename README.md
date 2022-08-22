@@ -11,4 +11,5 @@ pip install -r requirements.txt
 ```
 ### Scripts
 
-- [x] download dataset [promise](https://promise12.grand-challenge.org/) 
+- [1] download the prostate dataset [promise](https://promise12.grand-challenge.org/) 
+- [2] 
