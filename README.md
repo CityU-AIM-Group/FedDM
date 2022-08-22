@@ -30,6 +30,7 @@ python gen_weak.py
  --seed=0 \
  --margin=20 \
 ```
+```
 python gen_weak.py --base_folder='./data/promise_WSS/val' \
  --save_subfolder='box20' \
  --strategy='box_strat' \
@@ -39,5 +40,5 @@ python gen_weak.py --base_folder='./data/promise_WSS/val' \
  --margin=20 \
 ```
 
-```
+
 
