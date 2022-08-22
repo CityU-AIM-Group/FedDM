@@ -9,3 +9,6 @@ In this work, we represent the first effort to formulate federated weakly superv
 ```
 pip install -r requirements.txt
 ```
+### Scripts
+
+- [x] download dataset
