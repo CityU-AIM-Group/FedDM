@@ -11,7 +11,7 @@ pip install -r requirements.txt
 ```
 ### Scripts
 
-- [x] download the prostate dataset [promise](https://promise12.grand-challenge.org/), unzip and put it into the dir './data/'
+- [x] download the prostate dataset [promise](https://promise12.grand-challenge.org/), unzip and put it into the dir './data'
 - [x] preprocess the data 
 ```
 python python slice_promise.py 
