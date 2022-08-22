@@ -11,4 +11,4 @@ pip install -r requirements.txt
 ```
 ### Scripts
 
-- [x] download dataset
+- [x] download dataset [promise](https://promise12.grand-challenge.org/) 
