@@ -11,5 +11,11 @@ pip install -r requirements.txt
 ```
 ### Scripts
 
-- [1] download the prostate dataset [promise](https://promise12.grand-challenge.org/) 
-- [2] 
+- [x] download the prostate dataset [promise](https://promise12.grand-challenge.org/), unzip and put it into the dir './data/'
+- [x] preprocess the data 
+```
+python python slice_promise.py --source_dir='./data/promise' \
+ --dest_dir='./data/promise_WSS' \
+ --n_augment=0
+```
+- [x] and generate  bounding-box annotations
