@@ -59,8 +59,8 @@ def save(stem: str, n: int, imgs: List[Image.Image], dest_folders: List[Path]):
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Data augmentation parameters')
-    parser.add_argument('--root_dir', type=str, default='C:/ZML/Workplace/FD_WSS/Dataset/PROSTATE/val')
-    parser.add_argument('--dest_dir', type=str, default='C:/ZML/Workplace/FD_WSS/Dataset/PROSTATE-Aug/val')
+    parser.add_argument('--root_dir', type=str, default='')
+    parser.add_argument('--dest_dir', type=str, default='')
     parser.add_argument('--n_aug', type=int, default= 0)
 
     parser.add_argument('--flip', type=str2bool, default=True)
