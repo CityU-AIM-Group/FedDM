@@ -14,8 +14,30 @@ pip install -r requirements.txt
 - [x] download the prostate dataset [promise](https://promise12.grand-challenge.org/), unzip and put it into the dir './data/'
 - [x] preprocess the data 
 ```
-python python slice_promise.py --source_dir='./data/promise' \
- --dest_dir='./data/promise_WSS' \
- --n_augment=0
+python python slice_promise.py 
+--source_dir='./data/promise' \
+--dest_dir='./data/promise_WSS' \
+--n_augment=0
 ```
-- [x] and generate  bounding-box annotations
+- [x] generate bounding-box annotations
+```
+python gen_weak.py 
+--base_folder='./data/promise_WSS/train' \
+ --save_subfolder='box20' \
+ --strategy='box_strat' \
+ --selected_class=1 \
+ --filling 1 \
+ --seed=0 \
+ --margin=20 \
+```
+python gen_weak.py --base_folder='./data/promise_WSS/val' \
+ --save_subfolder='box20' \
+ --strategy='box_strat' \
+ --selected_class=1 \
+ --filling 1 \
+ --seed=0 \
+ --margin=20 \
+```
+
+```
+
