@@ -717,11 +717,11 @@ def run(args: argparse.Namespace) -> Dict[str, Tensor]:
     
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--dataset', type=str, default='C:/ZML/Workplace/FD_WSS/Dataset/PROSTATE/')
-    parser.add_argument("--workdir", type=str, default='results/prostate/box_prior_box_size_neg_size_tmp')
+    parser.add_argument('--dataset', type=str, default='./data/promise_WSS')
+    parser.add_argument("--workdir", type=str, default='results/prostate/')
     parser.add_argument("--losses", type=str, default="[('CrossEntropy', {'idc': [0, 1]}, None, None, None, 1)]",
                         help="List of list of (loss_name, loss_params, bounds_name, bounds_params, fn, weight)")
-    parser.add_argument("--folders", type=str, default="[('img', png_transform, False), ('gt', gt_transform, True)]+[('box', gt_transform, True)]",
+    parser.add_argument("--folders", type=str, default="[('img', png_transform, False), ('gt', gt_transform, True)]+[('box20', gt_transform, True)]",
                         help="List of list of (subfolder, transform, is_hot)")
     parser.add_argument("--network", type=str, default='ResidualUNet', help="The network to use")
     parser.add_argument("--n_class", type=int, default=2)
@@ -729,7 +729,7 @@ def get_args() -> argparse.Namespace:
         Display only the average of everything if empty")
 
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--cpu", type=str2bool, default=True)
+    parser.add_argument("--cpu", type=str2bool, default=False)
     parser.add_argument("--in_memory", type=str2bool, default=True)
     parser.add_argument("--schedule", type=str2bool, default=True)
     parser.add_argument("--use_sgd", type=str2bool, default=False)
@@ -738,7 +738,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--compute_miou", type=str2bool, default=True)
     parser.add_argument("--save_train", type=str2bool, default=False)
     parser.add_argument("--three_d", action='store_true')
-    parser.add_argument("--group", type=str2bool, default=True, help="Group the patient slices together for validation. \
+    parser.add_argument("--group", type=str2bool, default=False, help="Group the patient slices together for validation. \
         Useful to compute the 3d dice, but might destroy the memory for datasets with a lot of slices per patient.")
     parser.add_argument("--group_train", action='store_true', help="Group the patient slices together for training. \
         Useful to compute the 3d dice, but might destroy the memory for datasets with a lot of slices per patient.")
@@ -764,7 +764,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--peer_learning', type=str2bool, default=True, help='')  
     parser.add_argument('--seed', type=int, default=1, help='seed')
 
-    parser.add_argument('--ratio', type=float, default=0.5, help='ratio of noise')
+    parser.add_argument('--ratio', type=float, default=0.6, help='ratio of noise')
     parser.add_argument('--stop_epoch', type=int, default=50, help='stop epoch')
 
 
