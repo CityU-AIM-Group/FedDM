@@ -62,4 +62,14 @@ python main.py
     --seed=1
 ```
 
+## Citation
+```
+@ARTICLE{3235757,
+  author={Zhu, Meilu and Chen, Zhen and Yuan, Yixuan},
+  journal={IEEE Transactions on Medical Imaging}, 
+  title={FedDM: Federated Weakly Supervised Segmentation via Annotation Calibration and Gradient De-conflicting}, 
+  year={2023},
+  doi={10.1109/TMI.2023.3235757}}
+```
+
 
