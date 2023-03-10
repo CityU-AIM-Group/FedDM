@@ -38,13 +38,12 @@ python gen_weak.py
     --selected_class=1 \
     --filling 1 \
     --seed=0 \
-    --margin=20 \
+    --margin=0 \
 ```
 - [x] train the FedDM framework
 ```
 python main.py 
     --dataset='./data/promise_WSS'\
-    --csv='metrics.csv'\
     --workdir='results/prostate/'\
     --losses="[('CrossEntropy', {'idc': [0, 1]}, None, None, None, 1)]"\
     --folders="[('img', png_transform, False), ('gt', gt_transform, True)]+[('box20', gt_transform, True)]"\
