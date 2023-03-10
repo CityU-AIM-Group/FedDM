@@ -29,8 +29,9 @@ class CrossEntropy():
 
         return loss
 
-def Focal_Cross_entropy_revised(probs, target, clean_mask):
-      
+
+def Focal_Cross_Entropy(probs, target, clean_mask):
+
     target[:,0,:,:][(clean_mask==2)] = 1
     target[:,1,:,:][(clean_mask==2)] = 0
     mask: Tensor = cast(Tensor, target.type(torch.float32))        

@@ -23,8 +23,6 @@ python gen_weak.py --base_folder='./data/promise_WSS/train' \
  --filling 1 \
  --seed=0 \
  --margin=20 \
- --allow_bigger=1 \
- --allow_overflow=1
  
 python gen_weak.py --base_folder='./data/promise_WSS/val' \
  --save_subfolder='box20' \
@@ -32,6 +30,4 @@ python gen_weak.py --base_folder='./data/promise_WSS/val' \
  --selected_class=1 \
  --filling 1 \
  --seed=0 \
- --margin=20 \
- --allow_bigger=1 \
- --allow_overflow=1
+ --margin=0 \

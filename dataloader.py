@@ -2,15 +2,12 @@
 
 import io
 import re
-import pickle
 from pathlib import Path
-from ast import literal_eval
 from itertools import repeat
 from random import random, shuffle
 from operator import itemgetter, mul
 from functools import partial, reduce
-from multiprocessing import cpu_count
-from typing import Callable, BinaryIO, Dict, List, Match, Pattern, Tuple, Union, Optional
+from typing import Callable, BinaryIO, Dict, List, Match, Pattern, Tuple, Union
 
 import torch
 import numpy as np
@@ -105,11 +102,11 @@ def unnormalized_color_transform(size: Tuple[int, int], K: int) -> Callable[[D],
         lambda nd: torch.tensor(nd, dtype=torch.uint8)
     ])
 
+
 def get_loaders(args, data_folder: str,
                 batch_size: int, n_class: int,
                 debug: bool, in_memory: bool,
-                dimensions: int,
-                ) -> Tuple[List[DataLoader], List[DataLoader]]:
+                dimensions: int) -> Tuple[List[DataLoader], List[DataLoader]]:
     losses_list = eval(args.losses)
     if depth(losses_list) == 1:
         losses_list = [losses_list]
@@ -160,7 +157,7 @@ def get_loaders(args, data_folder: str,
         if platform.system().lower() == 'windows':
             num_workers = 0
         elif platform.system().lower() == 'linux':
-            num_workers= 4
+            num_workers= 8  
         
         data_loader = partial(DataLoader,
                               num_workers=num_workers,
@@ -170,7 +167,8 @@ def get_loaders(args, data_folder: str,
         train_folders: List[Path] = [Path(data_folder, train_topfolder, f) for f in folders]
         # I assume all files have the same name inside their folder: makes things much easier     
         #train_names: List[str] = map_(lambda p: str(p.name), train_folders[0].glob("*"))
-        train_names = client_patient_names[i]        
+        train_names = client_patient_names[i]
+        
         train_set = gen_dataset(train_names,
                                 train_folders,
                                 augment = True)
@@ -186,6 +184,7 @@ def get_loaders(args, data_folder: str,
         train_loaders.append(train_loader)
 
 
+    #if i == args.val_loader_id or (args.val_loader_id == -1 and (i + 1) == len(args.training_folders)):
     print(f">> Validation dataloader: {train_topfolder} with {folders}")
     val_folders: List[Path] = [Path(data_folder, args.validation_folder, f) for f in folders]
     val_names: List[str] = map_(lambda p: str(p.name), val_folders[0].glob("*"))
@@ -219,6 +218,7 @@ class SliceDataset(Dataset):
         self.augment= augment
         self.ignore_norm: bool = ignore_norm
         self.dimensions: int = dimensions
+
         if self.debug:
             self.filenames = self.filenames[:debug_size]
 
@@ -287,12 +287,14 @@ class SliceDataset(Dataset):
             images = images
             
         resolution: Tuple[float, ...]
+
         resolution = tuple([1] * self.dimensions)
 
         # Final transforms and assertions
         assert len(images) == len(self.folders) == len(self.transforms)
         final_tensors: List[Tensor] = [tr(resolution, self.K)(e) for (tr, e) in zip(self.transforms, images)]
         _, *img_shape = final_tensors[0].shape
+
         # main image is between 0 and 1
         if not self.ignore_norm:
             assert 0 <= final_tensors[0].min() and final_tensors[0].max() <= 1, \
@@ -310,10 +312,11 @@ class SliceDataset(Dataset):
         return {'filenames': filename,
                 'images': final_tensors[0],
                 'gt': final_tensors[1],
-                'labels': final_tensors[2:],
-                }
+                'labels': final_tensors[2:]}
+
 
 _use_shared_memory = True
+
 
 def custom_collate(batch):
     """Collate function to handle dict from dataset Dict[str, Union[str, Tensor, List[Tensor], List[slice]]]"""

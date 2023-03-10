@@ -1,12 +1,14 @@
 #!/usr/bin/env python3.7
 
 import argparse
+import warnings
 from pathlib import Path
 from functools import reduce
 from operator import add, itemgetter
 from shutil import copytree, rmtree
-from typing import Any, Callable, Dict, List, Tuple, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Tuple, Optional, cast
 
+import os
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -14,16 +16,16 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from dataloader import get_loaders
+from utils import map_
 from utils import depth, str2bool
 from utils import inter_sum, union_sum
-from utils import probs2one_hot, probs2class
-from utils import dice_coef, save_images, save_images1, tqdm_, hausdorff, iIoU, dice_batch
+from utils import probs2one_hot
+from utils import dice_coef, iIoU
 
 ###
 import copy
-from losses import Focal_Cross_entropy_revised as focal_cross_entropy
+from losses import Focal_Cross_Entropy as focal_cross_entropy
 
-from random import shuffle
 from sklearn.metrics import accuracy_score
 
 def setup(args, n_class: int) -> Tuple[Any, Any, Any, List[List[Callable]], List[List[float]], Callable]:
@@ -44,8 +46,9 @@ def setup(args, n_class: int) -> Tuple[Any, Any, Any, List[List[Callable]], List
     
         
     client_weights = [1/args.client_num for i in range(args.client_num)] # client importance
-    models = [copy.deepcopy(server_model).to(device) for idx in range(args.client_num)] # client的模型列表，从server端深拷贝5份        
+    models = [copy.deepcopy(server_model).to(device) for idx in range(args.client_num)]      
         
+    # print(args.losses)
     list_losses = eval(args.losses)
     if depth(list_losses) == 1:  # For compatibility reasons, avoid changing all the previous configuration files
         list_losses = [list_losses]
@@ -69,8 +72,7 @@ def setup(args, n_class: int) -> Tuple[Any, Any, Any, List[List[Callable]], List
 def do_epoch(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: int,
              list_loss_fns: List[List[Callable]], K: int,
              savedir: str = "", optimizer: Any = None,
-             metric_axis: List[int] = [1], compute_hausdorff: bool = False, compute_miou: bool = False,
-             compute_3d_dice: bool = False,
+             compute_miou: bool = False,
              temperature: float = 1,
              client_idx=None,
              lr = None) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor]]:
@@ -100,12 +102,6 @@ def do_epoch(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: in
         intersections = None
         unions = None
 
-    three_d_dices: Optional[Tensor]
-    if compute_3d_dice:
-        three_d_dices = torch.zeros((total_iteration, K), dtype=torch.float32, device=device)
-    else:
-        three_d_dices = None
-
     ce_loss = torch.nn.CrossEntropyLoss()
     done_img: int = 0
     done_batch: int = 0
@@ -126,7 +122,7 @@ def do_epoch(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: in
         if optimizer:
             optimizer.zero_grad()
 
-        # Forward
+            # Forward
         pred_logits: Tensor = net(image)
         pred_probs: Tensor = F.softmax(temperature * pred_logits, dim=1)
         predicted_mask: Tensor = probs2one_hot(pred_probs.detach())  # Used only for dice computation
@@ -149,6 +145,7 @@ def do_epoch(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: in
             seg_jac_score.append((intersection + smooth) / (np.sum(y_true_f) + np.sum(y_pred_f) - intersection + smooth))        
  
         mask_receptacle = predicted_mask[...]
+
         label = labels[0][:, 1, :, :].long()
         loss_ = ce_loss(pred_logits, label)
         losses = [loss_]            
@@ -174,19 +171,13 @@ def do_epoch(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: in
         assert dices.shape == (B, K), (dices.shape, B, K)
         all_dices[sm_slice, ...] = dices
 
-        if compute_3d_dice:
-            three_d_DSC: Tensor = dice_batch(mask_receptacle, target)
-            assert three_d_DSC.shape == (K,)
-
-            three_d_dices[done_batch] = three_d_DSC  # type: ignore
-
         if compute_miou:
             IoUs: Tensor = iIoU(mask_receptacle, target)
             assert IoUs.shape == (B, K), IoUs.shape
             iiou_log[sm_slice] = IoUs  # type: ignore
             intersections[sm_slice] = inter_sum(mask_receptacle, target)  # type: ignore
             unions[sm_slice] = union_sum(mask_receptacle, target)  # type: ignore
-
+            
         # Logging
         done_img += B
         done_batch += 1
@@ -211,11 +202,12 @@ def do_epoch(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: in
     
     return loss, DSC, DSC0, DSC1, mIoU, seg_sen, seg_spe, seg_acc,seg_jac_score
 
+
+
 def do_epoch_peer(args, mode: str, net: Any, device: Any, loader: DataLoader, epc: int,
              list_loss_fns: List[List[Callable]], K: int,
              savedir: str = "", optimizer: Any = None,
-             metric_axis: List[int] = [1], compute_hausdorff: bool = False, compute_miou: bool = False,
-             compute_3d_dice: bool = False,
+             compute_miou: bool = False,
              temperature: float = 1,
              client_idx=None,
              lr = None, peer_models = None) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor]]:
@@ -244,16 +236,10 @@ def do_epoch_peer(args, mode: str, net: Any, device: Any, loader: DataLoader, ep
         iiou_log = None
         intersections = None
         unions = None
-
-    three_d_dices: Optional[Tensor]
-    if compute_3d_dice:
-        three_d_dices = torch.zeros((total_iteration, K), dtype=torch.float32, device=device)
-    else:
-        three_d_dices = None
-
+        
     done_img: int = 0
     done_batch: int = 0
-    loss_fns =list_loss_fns[0]
+    loss_fns = list_loss_fns[0]
     
     peer_model_nearst = peer_models[0].eval()
     peer_model_farthest  = peer_models[1].eval()
@@ -274,8 +260,9 @@ def do_epoch_peer(args, mode: str, net: Any, device: Any, loader: DataLoader, ep
         target: Tensor = data["gt"].to(device)
         assert not target.requires_grad
         labels: List[Tensor] = [e.to(device) for e in data["labels"]]
+        #meilu
         B, C, *_ = image.shape
-
+            # Reset gradients
         if optimizer:
             optimizer.zero_grad()
 
@@ -286,10 +273,10 @@ def do_epoch_peer(args, mode: str, net: Any, device: Any, loader: DataLoader, ep
             pred_logits1 = peer_model_nearst(image)
             pred_logits2 = peer_model_farthest(image)
 
-        clean_mask = pixel_selection_by_loss(pred_logits.detach(), pred_logits1.detach(), pred_logits2.detach(), labels, p = p)
-
+        clean_mask = pixel_selection_by_Peers(pred_logits.detach(), pred_logits1.detach(), pred_logits2.detach(), labels, p = p)
+        
         pred_probs: Tensor = F.softmax(temperature * pred_logits, dim=1)
-        predicted_mask: Tensor = probs2one_hot(pred_probs.detach())  # Used only for dice computation
+        predicted_mask: Tensor = probs2one_hot(pred_probs.detach())
         assert not predicted_mask.requires_grad
 
         mask = target[:,1,:, :].cpu().data.numpy()
@@ -334,18 +321,14 @@ def do_epoch_peer(args, mode: str, net: Any, device: Any, loader: DataLoader, ep
         assert dices.shape == (B, K), (dices.shape, B, K)
         all_dices[sm_slice, ...] = dices
 
-        if compute_3d_dice:
-            three_d_DSC: Tensor = dice_batch(mask_receptacle, target)
-            assert three_d_DSC.shape == (K,)
-
-            three_d_dices[done_batch] = three_d_DSC  # type: ignore
         if compute_miou:
             IoUs: Tensor = iIoU(mask_receptacle, target)
             assert IoUs.shape == (B, K), IoUs.shape
             iiou_log[sm_slice] = IoUs  # type: ignore
             intersections[sm_slice] = inter_sum(mask_receptacle, target)  # type: ignore
             unions[sm_slice] = union_sum(mask_receptacle, target)  # type: ignore
-        # Save images
+
+        # Logging
         done_img += B
         done_batch += 1
         
@@ -368,8 +351,9 @@ def do_epoch_peer(args, mode: str, net: Any, device: Any, loader: DataLoader, ep
     seg_jac_score = np.nanmean(seg_jac_score)
     
     return loss, DSC, DSC0, DSC1, mIoU, seg_sen, seg_spe, seg_acc,seg_jac_score
+    
 
-def pixel_selection_by_loss(logits, logits1, logits2, labels, p = 0):
+def pixel_selection_by_Peers(logits, logits1, logits2, labels, p = 0):
     
     bg_mask = labels[0][:, 0, :, :] # B, H, W   
     fg_mask = labels[0][:, 1, :, :] # B, H, W
@@ -397,8 +381,10 @@ def pixel_selection_by_loss(logits, logits1, logits2, labels, p = 0):
     
     for b in range(fg_mask.size(0)):
         
+        #fg_num = (fg_mask.sum((1,2)) * p).type(torch.int)
         fg_num_selected = (fg_mask[b].sum() * p).type(torch.int).item()
         threshold = fg_num_selected + bg_mask[b].sum()
+        #print('fg_num:', fg_num_selected)
         if fg_num_selected>5:
             value_fg, _ = torch.topk(loss_fg_flatten[b,:], threshold, largest=False, sorted=True)
             thresh_fg = value_fg[-1]
@@ -429,6 +415,7 @@ def update_lr(schedule, lr, epoch, n_epoch, lr_step=20, lr_gamma=0.5):
         
     return lr
 
+
 def find_customized_peers(models, input, embeddings,  device):
 
     customized_peers = []
@@ -439,7 +426,7 @@ def find_customized_peers(models, input, embeddings,  device):
             for i in range(4):
                 input_ = input[i*input.size(0)//4 : (i+1)*input.size(0)//4]           
                 out = torch.softmax(model(input_), dim = 1) # 100, 2, 256, 256                 
-                embeddings[client_idx][i*input.size(0)//4 : (i+1)*input.size(0)//4] = out           
+                embeddings[client_idx][i*input.size(0)//4 : (i+1)*input.size(0)//4] = out          
 
     nearest_clients_bulk = torch.zeros(len(embeddings))
     farthest_clients_bulk = torch.zeros(len(embeddings)) 
@@ -454,14 +441,15 @@ def find_customized_peers(models, input, embeddings,  device):
                     distances[client_j] = 1.
                 else:
                     embedding_o = embeddings[client_j][b].view(-1)
-                    assert embedding[b].shape == embedding_o.shape
-                    distances[client_j] = torch.norm(embedding[b] - embedding_o, p = 2)
+                    distances[client_j] = torch.norm(embedding[b] - embedding_o, p = 2)                       
+
             distances[client_i] = 1e10
             nearest_idx = distances.argmin()
             nearest_samples_bulk[nearest_idx] += 1
             distances[client_i] = -1e10
             farthest_idx = distances.argmax()               
             farthest_samples_bulk[farthest_idx] += 1
+
         nearest_samples_bulk[client_i] = 0.
         farthest_samples_bulk[client_i] = 0.
         assert nearest_samples_bulk.sum() == embedding.size(0)
@@ -495,6 +483,7 @@ def communication(args, server_model, models, client_weights):
                         
     return server_model, models
 
+
 def get_grads_(model, server_model):
     grads = []
     for key in server_model.state_dict().keys():
@@ -512,7 +501,8 @@ def set_grads_(model,server_model, new_grads):
             start = end
     return model       
 
-def pcgrad(args, client_grads, grad_history = None):
+
+def pcgrad_hierarchy(args, client_grads, grad_history = None):
     """ Projecting conflicting gradients"""
     client_grads_  = torch.stack(client_grads)
     grads = []
@@ -559,16 +549,14 @@ def pcgrad(args, client_grads, grad_history = None):
                             client_grads_new.append(grad_single)
                     client_grads_layer = torch.stack(client_grads_new)
                 elif num == 2:
-                    grad_0 = client_grads_layer[0]
-                    grad_1 = client_grads_layer[1]                     
-                    inner_prod = torch.dot(grad_0, grad_1)
+                    grad_pc_0 = client_grads_layer[0]
+                    grad_pc_1 = client_grads_layer[1]                     
+                    inner_prod = torch.dot(grad_pc_0, grad_pc_1)
                     if inner_prod < 0:
                         # Sustract the conflicting component
-                        grad_pc_0 = grad_0 - inner_prod / (grad_1 ** 2).sum() * grad_1
-                        grad_pc_1 = grad_1 - inner_prod / (grad_0 ** 2).sum() * grad_0
-                    else:
-                        grad_pc_0 = grad_0
-                        grad_pc_1 = grad_1
+                        grad_pc_0 = grad_pc_0 - inner_prod / (grad_pc_1 ** 2).sum() * grad_pc_1
+                        grad_pc_1 = grad_pc_1 - inner_prod / (grad_pc_0 ** 2).sum() * grad_pc_0
+                        
                     grad_pc_0_1 = grad_pc_0 + grad_pc_1
                     grad_new = grad_pc_0_1/args.client_num
                     break
@@ -586,13 +574,17 @@ def pcgrad(args, client_grads, grad_history = None):
 
     return grad_new, grad_history
 
+
 def communication_FedDM(args, server_model, models, client_weights, device = None, gauss = None, embeddings = None, epoch = None, grad_history = None):
 
     peer_models, embeddings, nearest_clients_bulk, farthest_clients_bulk = find_customized_peers(models, gauss, embeddings, device)
+    
     grads = []
     for model in models:
         grads.append(get_grads_(model, server_model))
-    new_grads, grad_history = pcgrad(args,grads, grad_history)
+        
+    new_grads, grad_history = pcgrad_hierarchy(args,grads, grad_history)
+    
     for k, model in enumerate(models):
         models[k] = set_grads_(model, server_model, new_grads)
 
@@ -630,15 +622,15 @@ def run(args: argparse.Namespace) -> Dict[str, Tensor]:
     n_epoch: int = args.n_epoch
 
     loss_fns: List[List[Callable]]
+    loss_weights: List[List[float]]
     server_model, models, device, loss_fns, scheduler, client_weights = setup(args, n_class)
     train_loaders, val_loader = get_loaders(args, args.dataset,
                                              args.batch_size, n_class,
-                                             args.debug, args.in_memory, args.dimensions)  
-    
+                                             args.debug, args.in_memory, args.dimensions)
+
     print("\n>>> Starting the training")
     peer_models = None
     
-    #############
     n_samples = 100
     grad_history = {'down_1.conv_1': None, 'down_1.conv_2': None, 'down_1.conv_3': None,
                     'down_2.conv_1':None, 'down_2.conv_2':None, 'down_2.conv_3':None, 
@@ -674,12 +666,12 @@ def run(args: argparse.Namespace) -> Dict[str, Tensor]:
                     peer_model = peer_models[client_idx]
                 model, train_loader, optimizer = models[client_idx], train_loaders[client_idx], optimizers[client_idx]        
                 # Do training and validation loops
+                
                 if args.peer_learning == True and epoch > 0:
                     tra_loss, tra_dice, tra_dice1, tra_dice2, tra_mIoUs, tra_sen, tra_spe, tra_acc, tra_jac_score = do_epoch_peer(args, "train", model, device, train_loader, epoch,
                                                                    loss_fns, n_class,
                                                                    savedir=savedir if args.save_train else "",
                                                                    optimizer=optimizer,
-                                                                   metric_axis=args.metric_axis,
                                                                    compute_miou=args.compute_miou,
                                                                    temperature=args.temperature,
                                                                    client_idx = client_name,
@@ -689,39 +681,37 @@ def run(args: argparse.Namespace) -> Dict[str, Tensor]:
                                                                    loss_fns, n_class,
                                                                    savedir=savedir if args.save_train else "",
                                                                    optimizer=optimizer,
-                                                                   metric_axis=args.metric_axis,
                                                                    compute_miou=args.compute_miou,
                                                                    temperature=args.temperature,
                                                                    client_idx = client_name,
                                                                    lr = args.l_rate)
-                print(f"C-{client_idx} Train [{epoch}/{n_epoch}] LR={args.l_rate:.6f} loss={tra_loss:.3f} DSC={tra_dice:.3f} DSC1={tra_dice1:.3f} DSC2={tra_dice2:.3f} mIoUs={tra_mIoUs:.3f} Sen={tra_sen:.3f} Spe={tra_spe:.3f} Acc={tra_acc:.3f} Jac={tra_jac_score:.3f}")
+                print(f"C-{client_idx} Train [{epoch}/{n_epoch}] LR={args.l_rate:.6f} loss={tra_loss:.3f} DSC={tra_dice:.3f} DSC1={tra_dice1:.3f} DSC2={tra_dice2:.3f} mIoUs={tra_mIoUs:.3f} Sen={tra_sen:.3f} Spe={tra_spe:.3f} Acc={tra_acc:.3f} Jac={tra_jac_score:.3f}")          
         
         #communication       
         server_model, models, peer_models, embeddings, grad_history = communication_FedDM(args, server_model, models, client_weights, device, gauss, embeddings, epoch, grad_history)
-       
         ### testing
         with torch.no_grad():
             #validation
             val_loss, val_dice, val_dice1, val_dice2, val_mIoUs, val_sen, val_spe, val_acc, val_jac_score = do_epoch(args, "val", server_model, device, val_loader, epoch,
-                                                                                loss_fns,        
+                                                                                loss_fns,
                                                                                 n_class,
                                                                                 savedir=savedir,
-                                                                                metric_axis=args.metric_axis,
-                                                                                compute_hausdorff=args.compute_hausdorff,
                                                                                 compute_miou=args.compute_miou,
-                                                                                compute_3d_dice=args.compute_3d_dice,
                                                                                 temperature=args.temperature,
                                                                                 lr = args.l_rate)
             print(f"Val [{epoch}/{n_epoch}] loss={val_loss:.5f} DSC={val_dice:.5f} DSC1={val_dice1:.5f} DSC2={val_dice2:.5f} mIoUs={val_mIoUs:.5f} Sen={val_sen:.5f} Spe={val_spe:.5f} Acc={val_acc:.5f} Jac={val_jac_score:.5f}")                
-            print()
-    
+            print()          
+            
+            
+
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Hyperparams')
-    parser.add_argument('--dataset', type=str, default='./data/promise_WSS')
+    parser.add_argument('--dataset', type=str, default='')
+    # parser.add_argument('--weak_subfolder', type=str, required=True)
     parser.add_argument("--workdir", type=str, default='results/prostate/')
     parser.add_argument("--losses", type=str, default="[('CrossEntropy', {'idc': [0, 1]}, None, None, None, 1)]",
                         help="List of list of (loss_name, loss_params, bounds_name, bounds_params, fn, weight)")
-    parser.add_argument("--folders", type=str, default="[('img', png_transform, False), ('gt', gt_transform, True)]+[('box20', gt_transform, True)]",
+    parser.add_argument("--folders", type=str, default="[('img', png_transform, False), ('gt', gt_transform, True)]+[('box', gt_transform, True)]",
                         help="List of list of (subfolder, transform, is_hot)")
     parser.add_argument("--network", type=str, default='ResidualUNet', help="The network to use")
     parser.add_argument("--n_class", type=int, default=2)
@@ -729,7 +719,7 @@ def get_args() -> argparse.Namespace:
         Display only the average of everything if empty")
 
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--cpu", type=str2bool, default=False)
+    parser.add_argument("--cpu", type=str2bool, default=True)
     parser.add_argument("--in_memory", type=str2bool, default=True)
     parser.add_argument("--schedule", type=str2bool, default=True)
     parser.add_argument("--use_sgd", type=str2bool, default=False)
@@ -738,7 +728,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--compute_miou", type=str2bool, default=True)
     parser.add_argument("--save_train", type=str2bool, default=False)
     parser.add_argument("--three_d", action='store_true')
-    parser.add_argument("--group", type=str2bool, default=False, help="Group the patient slices together for validation. \
+    parser.add_argument("--group", type=str2bool, default=True, help="Group the patient slices together for validation. \
         Useful to compute the 3d dice, but might destroy the memory for datasets with a lot of slices per patient.")
     parser.add_argument("--group_train", action='store_true', help="Group the patient slices together for training. \
         Useful to compute the 3d dice, but might destroy the memory for datasets with a lot of slices per patient.")
@@ -756,15 +746,16 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument("--weights", type=str, default='', help="Stored weights to restore")
     parser.add_argument("--training_folders", type=str, nargs="+", default=["train"])
-    parser.add_argument("--validation_folder", type=str, default="val")    
-
+    parser.add_argument("--validation_folder", type=str, default="val")
+    
+    ####meilu
     parser.add_argument('--client_names', type=str, default="['Client0', 'Client1', 'Client2','Client3', 'Client4', 'Client5']", help='the number of clients')    
     parser.add_argument('--client_num', type=int, default=4, help='the number of clients')    
     parser.add_argument('--worker_steps', type=int, default=1, help='')
-    parser.add_argument('--peer_learning', type=str2bool, default=True, help='')  
+    parser.add_argument('--peer_learning', type=str2bool, default=True, help='')
     parser.add_argument('--seed', type=int, default=1, help='seed')
 
-    parser.add_argument('--ratio', type=float, default=0.6, help='ratio of noise')
+    parser.add_argument('--ratio', type=float, default=0.5, help='ratio of noise')
     parser.add_argument('--stop_epoch', type=int, default=50, help='stop epoch')
 
 
@@ -773,7 +764,7 @@ def get_args() -> argparse.Namespace:
         args.metric_axis = list(range(args.n_class))
 
     args.client_names = eval(args.client_names)    
-    
+
     print("\n", args)
 
     return args
@@ -790,7 +781,7 @@ if __name__ == '__main__':
          np.random.seed(seed)
          random.seed(seed)
          torch.backends.cudnn.deterministic = True
-         torch.backends.cudnn.benchmark = False
+    # 设置随机数种子
     args = get_args()
     setup_seed(args.seed)
     run(args)
